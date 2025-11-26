@@ -12,20 +12,32 @@ let dmSortDirty = false; // Flag to avoid re-sorting DM list unnecessarily
 // Check token and load data on page load
 window.addEventListener('DOMContentLoaded', async () => {
     try {
-        const response = await fetch('/api/user');
+        // Add timeout for slow server wake-up (Render free tier)
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+        const response = await fetch('/api/user', { signal: controller.signal });
+        clearTimeout(timeout);
+
         if (response.ok) {
             currentUser = await response.json();
             loadUserInfo();
             loadDMs();
             loadGuilds();
             setupSearchListeners();
+            // Start background polling for notifications
+            setInterval(pollAllChannelsForNotifications, 10000); // Every 10 seconds
         } else {
             const error = await response.json();
             showError(error.error || 'Failed to authenticate. Check your Discord token in .env file');
         }
     } catch (error) {
         console.error('Init error:', error);
-        showError('Failed to connect to server. Make sure the server is running.');
+        if (error.name === 'AbortError') {
+            showError('Server is waking up... Please wait 30 seconds and refresh the page.');
+        } else {
+            showError('Failed to connect to server. Make sure the server is running.');
+        }
     }
 });
 
@@ -283,7 +295,7 @@ function selectDM(dm, displayName) {
     if (messagePollingInterval) {
         clearInterval(messagePollingInterval);
     }
-    messagePollingInterval = setInterval(loadMessages, 1500);
+    messagePollingInterval = setInterval(loadMessages, 3000);
 }
 
 // Select a guild and load its channels
@@ -364,7 +376,7 @@ function selectChannel(channel) {
     if (messagePollingInterval) {
         clearInterval(messagePollingInterval);
     }
-    messagePollingInterval = setInterval(loadMessages, 1500);
+    messagePollingInterval = setInterval(loadMessages, 3000);
 }
 
 // Load messages for current channel
@@ -398,11 +410,9 @@ async function loadMessages() {
             // Update last message time for sorting (only for DMs)
             if (currentChannel.type === 'dm' && messages.length > 0) {
                 const latestMessage = messages[messages.length - 1];
-                const newTime = new Date(latestMessage.timestamp).getTime();
-                if (dmLastMessageTime[currentChannel.id] !== newTime) {
-                    dmLastMessageTime[currentChannel.id] = newTime;
-                    dmSortDirty = true; // Mark as dirty instead of immediately re-sorting
-                }
+                dmLastMessageTime[currentChannel.id] = new Date(latestMessage.timestamp).getTime();
+                // Re-sort DM list
+                filterDMs(document.getElementById('dm-search').value || '');
             }
 
             // Show notification for new messages (not on first load)
@@ -614,9 +624,6 @@ async function sendMessage() {
 
     if (!content) return;
 
-    // Immediately clear the input for better UX
-    messageBox.value = '';
-
     try {
         const response = await fetch(`/api/messages/${currentChannel.id}`, {
             method: 'POST',
@@ -627,31 +634,44 @@ async function sendMessage() {
         });
 
         if (response.ok) {
-            // Message will appear on next poll (1.5 seconds max)
-            setTimeout(loadMessages, 300);
+            messageBox.value = '';
+            // Message will appear on next poll
+            setTimeout(loadMessages, 500);
         } else {
             alert('Failed to send message');
-            // Restore message on failure
-            messageBox.value = content;
         }
     } catch (error) {
         console.error('Failed to send message:', error);
         alert('Failed to send message');
-        // Restore message on failure
-        messageBox.value = content;
     }
 }
 
-// Typing indicator management - DISABLED to reduce network overhead
+// Typing indicator management
 let typingTimeout = null;
 let isTyping = false;
 
 function triggerTypingIndicator() {
-    // Disabled to reduce lag
-    return;
+    if (!currentChannel) return;
+
+    // Send typing indicator to Discord
+    fetch(`/api/typing/${currentChannel.id}`, {
+        method: 'POST'
+    }).catch(err => console.error('Typing indicator error:', err));
+
+    isTyping = true;
+
+    // Clear previous timeout
+    if (typingTimeout) {
+        clearTimeout(typingTimeout);
+    }
+
+    // Reset typing status after 10 seconds (Discord's default)
+    typingTimeout = setTimeout(() => {
+        isTyping = false;
+    }, 10000);
 }
 
-// Handle Enter key in message box
+// Handle Enter key and typing in message box
 document.addEventListener('DOMContentLoaded', () => {
     const messageBox = document.getElementById('message-box');
     if (messageBox) {
@@ -660,18 +680,50 @@ document.addEventListener('DOMContentLoaded', () => {
                 sendMessage();
             }
         });
+
+        // Trigger typing indicator when user types
+        messageBox.addEventListener('input', (e) => {
+            if (e.target.value.trim() !== '' && !isTyping) {
+                triggerTypingIndicator();
+            }
+        });
     }
 });
 
-// Poll all channels for new messages in background - DISABLED to reduce lag
-// Background polling disabled - only current channel is polled
+// Poll all channels for new messages in background
+async function pollAllChannelsForNotifications() {
+    // Poll DMs
+    for (const dm of allDMs) {
+        if (currentChannel && currentChannel.id === dm.id) continue; // Skip current channel
 
-// Re-sort DM list periodically if dirty
-setInterval(() => {
-    if (dmSortDirty) {
-        filterDMs(document.getElementById('dm-search').value || '');
+        try {
+            const response = await fetch(`/api/messages/${dm.id}?limit=1`);
+            const messages = await response.json();
+
+            if (messages.length > 0) {
+                const latestMessage = messages[messages.length - 1];
+
+                // Update last message time for sorting
+                dmLastMessageTime[dm.id] = new Date(latestMessage.timestamp).getTime();
+
+                // Check if this is a new message
+                if (!lastSeenMessages[dm.id]) {
+                    lastSeenMessages[dm.id] = latestMessage.id;
+                } else if (latestMessage.id > lastSeenMessages[dm.id] && latestMessage.author.id !== currentUser?.id) {
+                    // New message from someone else
+                    unreadCounts[dm.id] = (unreadCounts[dm.id] || 0) + 1;
+                    updateNotificationBadge(dm.id, unreadCounts[dm.id]);
+                    lastSeenMessages[dm.id] = latestMessage.id;
+
+                    // Re-sort DM list to bring this DM to top
+                    filterDMs(document.getElementById('dm-search').value || '');
+                }
+            }
+        } catch (err) {
+            // Silently fail for background polling
+        }
     }
-}, 10000); // Only re-sort every 10 seconds if needed
+}
 
 // Show notification for new message
 function showNotification(message) {
