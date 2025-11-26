@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Proxy Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Notification -->
+        <div id="notification" class="notification hidden"></div>
+
+        <!-- Main Chat Interface -->
+        <div id="chat-screen" class="screen">
+            <div class="chat-container">
+                <!-- Sidebar -->
+                <div class="sidebar">
+                    <div class="user-info">
+                        <img id="user-avatar" src="" alt="Avatar">
+                        <div id="user-name">Loading...</div>
+                    </div>
+
+                    <!-- DMs Section -->
+                    <div class="dm-list">
+                        <h3>Direct Messages</h3>
+                        <input type="text" id="dm-search" class="search-box" placeholder="Search DMs...">
+                        <div id="dms" class="loading">Loading DMs...</div>
+                    </div>
+
+                    <!-- Servers Section -->
+                    <div class="server-list">
+                        <h3>Servers</h3>
+                        <input type="text" id="server-search" class="search-box" placeholder="Search servers...">
+                        <div id="servers" class="loading">Loading servers...</div>
+                    </div>
+
+                    <!-- Channels Section -->
+                    <div class="channel-list hidden">
+                        <h3>Channels</h3>
+                        <div id="channels"></div>
+                    </div>
+                </div>
+
+                <!-- Main Chat Area -->
+                <div class="main-content">
+                    <div class="chat-header">
+                        <h2 id="channel-name">Select a DM or channel</h2>
+                    </div>
+
+                    <div class="messages" id="messages">
+                        <div class="no-channel">Select a DM or channel to start chatting</div>
+                    </div>
+
+                    <div class="typing-indicator" id="typing-indicator"></div>
+
+                    <div class="message-input">
+                        <input type="file" id="file-input" accept="image/*,video/*" style="display: none;">
+                        <button onclick="document.getElementById('file-input').click()" id="attach-btn" class="attach-btn" disabled title="Attach file">📎</button>
+                        <input
+                            type="text"
+                            id="message-box"
+                            placeholder="Type a message..."
+                            disabled
+                        >
+                        <button onclick="sendMessage()" id="send-btn" disabled>Send</button>
+                    </div>
+                    <div id="file-preview" class="file-preview hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Screen -->
+        <div id="error-screen" class="screen hidden">
+            <div class="error-container">
+                <h1>⚠️ Configuration Error</h1>
+                <p id="error-message">Failed to connect to Discord</p>
+                <button onclick="location.reload()" class="btn-primary">Retry</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
